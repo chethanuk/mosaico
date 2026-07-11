@@ -438,10 +438,17 @@ class QueryTopic:
 
     def with_name_match(self, name: str) -> "QueryTopic":
         """
-        Adds a partial (fuzzy) match filter for the topic 'name' field.
+        Adds a RegEx filter for the topic 'name' field. Supported RegEx operations are:
 
-        This performs an 'in-between' search (equivalent to %name%) on the full
-        `sequence/topic` path.
+        - * => matches a multiple (zero or more) characters, including space.
+        - ? => matches a single (exactly one) characters, including space.
+        - [] => matches a character set. Examples: [aeiou] to match any vocals, or [a-z] to match a range
+        - # => matches any single digit (0 — 9). Shortcut for [0-9]
+
+        Supposing the server cotains car1/imu/front we can get it using:
+            - *imu*
+            - car#/[a-z]*/[a-z]**
+            - car?/[umi]*/?????
 
         Example:
             ```python
@@ -450,7 +457,7 @@ class QueryTopic:
             with MosaicoClient.connect("localhost", 6726) as client:
                 # Search for all topics containing the word 'camera'
                 qresponse = client.query(
-                    QueryTopic().with_name_match("camera")
+                    QueryTopic().with_name_match("/[a-z]/camera")
                 )
 
                 # Inspect the response
@@ -821,9 +828,18 @@ class QuerySequence:
 
     def with_name_match(self, name: str) -> "QuerySequence":
         """
-        Adds a partial (fuzzy) match filter for the sequence 'name' field.
+        Adds a RegEx filter for the sequence 'name' field. Supported RegEx operations are:
 
-        This performs an 'in-between' search (equivalent to %name%) on the sequence name.
+        - * => matches a multiple (zero or more) characters, including space.
+        - ? => matches a single (exactly one) characters, including space.
+        - [] => matches a character set. Examples: [aeiou] to match any vocals, or [a-z] to match a range
+        - # => matches any single digit (0 — 9). Shortcut for [0-9]
+
+        Supposing the server cotains sequence experiment1-car we can get it using:
+            - experiment*
+            - [a-z]*1-car
+            - experiment?/[a-z]*
+            - experiment1-car
 
         Example:
             ```python
@@ -832,7 +848,7 @@ class QuerySequence:
             with MosaicoClient.connect("localhost", 6726) as client:
                 # Find all sequences with name containing 'calibration_run_'
                 qresponse = client.query(
-                    QuerySequence().with_name_match("calibration_run_")
+                    QuerySequence().with_name_match("calibration_run_*")
                 )
 
                 # Inspect the response
@@ -1011,7 +1027,7 @@ class Query:
                 # Append a filter for sequence metadata
                 QuerySequence()
                 .with_user_metadata("environment.visibility", lt=50)
-                .with_name_match("test_drive"),
+                .with_name_match("test_drive*"),
                 # Append a filter with deep time-series data discovery and measurement time windowing
                 QueryOntologyCatalog()
                 .with_expression(IMU.Q.acceleration.x.gt(5.0))
@@ -1075,7 +1091,7 @@ class Query:
                 # Append a filter for sequence metadata
                 QuerySequence()
                 .with_user_metadata("environment.visibility", lt=50)
-                .with_name_match("test_drive")
+                .with_name_match("test_drive???")
             )
 
             # Append a filter with deep time-series data discovery and measurement time windowing
