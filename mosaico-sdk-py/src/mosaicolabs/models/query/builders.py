@@ -160,7 +160,13 @@ class QueryOntologyCatalog:
                     print(f"Sequence: {item.sequence.name}")
                     print(f"Topics: {[topic.name for topic in item.topics]}")
 
-            # FIXME: Add here example for timestamp exytraction and clustering
+                    # Clusterize all topics within the sequence to extract the time intervals
+                    clusters_dict = item.clusterize_all()
+
+                    # Since clusterize_all() used default clustering_dt_ns, each topic will have
+                    # just one cluster representing the first and last moment the query was satisfied
+                    for t_name, clusters in clusters_dict.items():
+                        print(f"{t_name}:\\n", "\\n".join(f"{cluster}" for cluster in clusters))
         ```
     """
 
@@ -185,7 +191,7 @@ class QueryOntologyCatalog:
             ValueError: If an operator does not start with the required '$' prefix.
             NotImplementedError: If a duplicate key (field path) is detected within the same query.
         """
-        self._expressions = []
+        self._expressions: list[_QueryExpression] = []
         # Call the helper for each expression
         for expr in expressions:
             _validate_expression_type(expr, self.__supported_query_expressions__)
@@ -230,7 +236,13 @@ class QueryOntologyCatalog:
                         print(f"Sequence: {item.sequence.name}")
                         print(f"Topics: {[topic.name for topic in item.topics]}")
 
-                # FIXME: Add here example for timestamp exytraction and clustering
+                        # Clusterize all topics within the sequence to extract the time intervals
+                        clusters_dict = item.clusterize_all()
+
+                        # Since clusterize_all() used default clustering_dt_ns, each topic will have
+                        # just one cluster representing the first and last moment the query was satisfied
+                        for t_name, clusters in clusters_dict.items():
+                            print(f"{t_name}:\\n", "\\n".join(f"{cluster}" for cluster in clusters))
             ```
 
         Args:
@@ -268,6 +280,12 @@ class QueryOntologyCatalog:
         """
         query_dict = _QueryCombinator(list(self._expressions)).to_dict()
         return query_dict
+
+    def expressions(self) -> List[_QueryExpression]:
+        """
+        Return the list of query expressions.
+        """
+        return self._expressions
 
 
 class QueryTopic:
@@ -308,7 +326,7 @@ class QueryTopic:
         """
         The constructor initializes an empty query builder
         """
-        self._expressions = []
+        self._expressions: list[_QueryExpression] = []
 
     @classmethod
     def _from_expressions(cls, *exprs: _QueryExpression) -> "QueryTopic":
@@ -659,6 +677,12 @@ class QueryTopic:
 
         return exprs_dict
 
+    def expressions(self) -> List[_QueryExpression]:
+        """
+        Return the list of query expressions.
+        """
+        return self._expressions
+
 
 class QuerySequence:
     """
@@ -695,7 +719,7 @@ class QuerySequence:
         """
         The constructor initializes an empty query builder
         """
-        self._expressions = []
+        self._expressions: List[_QueryExpression] = []
 
     @classmethod
     def _from_expressions(cls, *exprs: _QueryExpression) -> "QuerySequence":
@@ -1008,6 +1032,12 @@ class QuerySequence:
 
         return exprs_dict
 
+    def expressions(self) -> List[_QueryExpression]:
+        """
+        Return the list of query expressions.
+        """
+        return self._expressions
+
 
 class Query:
     """
@@ -1036,13 +1066,21 @@ class Query:
             # Perform the server side query
             qresponse = client.query(query=query)
             # Inspect the response
-                if qresponse is not None:
-                    # Results are automatically grouped by Sequence for easier data management
-                    for item in qresponse:
-                        print(f"Sequence: {item.sequence.name}")
-                        print(f"Topics: {{topic.name:
-                                    [topic.timestamp_range.start, topic.timestamp_range.end]
-                                    for topic in item.topics}}")
+            if qresponse is not None:
+                # Results are automatically grouped by Sequence for easier data management
+                for item in qresponse:
+                    print(f"Sequence: {item.sequence.name}")
+                    print(
+                        f"Topics: {
+                            {
+                                topic.name: [
+                                    (cluster.timerange.start, cluster.timerange.end)
+                                    for cluster in topic.clusterize()
+                                ]
+                                for topic in item.topics
+                            }
+                        }"
+                    )
         ```
     """
 
