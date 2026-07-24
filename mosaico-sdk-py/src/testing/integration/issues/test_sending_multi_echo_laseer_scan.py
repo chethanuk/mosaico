@@ -4,8 +4,7 @@ from mosaicolabs.models.core.message import Message
 from mosaicolabs.models.futures.laser import MultiEchoLaserScan
 
 
-# FIXME: Enable after bigfix on server side
-def _test_sending_MultiEchoLaserScan(mosaico_client: MosaicoClient):
+def test_sending_MultiEchoLaserScan(mosaico_client: MosaicoClient):
     print(MultiEchoLaserScan.__msco_pyarrow_struct__)
     with mosaico_client:
         try:

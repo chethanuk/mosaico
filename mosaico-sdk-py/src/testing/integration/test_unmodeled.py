@@ -7,9 +7,9 @@ from mosaicolabs.models.core.helpers import resolve_ontology_class
 from mosaicolabs.models.core.message import Message
 from mosaicolabs.models.core.unmodeled import Unmodeled, make_unmodeled_ontology_class
 from mosaicolabs.models.data import Time
-from mosaicolabs.models.query.builders import QueryOntologyCatalog
-from mosaicolabs.models.query.queryable_fields import QueryableNumeric
 from mosaicolabs.models.sensors import CameraInfo, CompressedImage, ImageFormat
+from mosaicolabs.query.builders import QueryOntologyCatalog
+from mosaicolabs.query.queryable_fields import QueryableNumeric
 
 UnmodeledGyro = make_unmodeled_ontology_class(
     "UnmodeledGyro",
