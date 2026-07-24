@@ -338,10 +338,11 @@ pub fn stats_from_arrow_field(field: &Field) -> types::Stats {
                 leaf = inner.data_type();
             }
             if is_textual(leaf) {
-                Stats::ListTextual(TextualStats::new())
-            } else {
-                Stats::ListNumeric(NumericStats::new())
+                return Stats::ListTextual(TextualStats::new());
+            } else if is_numeric(leaf) {
+                return Stats::ListNumeric(NumericStats::new());
             }
+            Stats::Unsupported
         }
         _ => Stats::Unsupported,
     }
