@@ -22,6 +22,11 @@ pub const EPSILON: f64 = 1.0e-06;
 
 pub const MAX_BUFFERED_FUTURES: usize = 8;
 
+// MIN/MAX values admissible for grpc message size.
+pub const GRPC_MSG_MIN_SIZE_BYTES: usize = 4 * 1024 * 1024; // 4MB. Default grpc message size.
+pub const GRPC_MSG_MAX_SIZE_BYTES: usize = 128 * 1024 * 1024; // 128MB
+
+// Default values for Params.
 pub const DEFAULT_MAX_GRPC_MESSAGE_SIZE: usize = 50 * 1_000_000; // 50MB
 pub const DEFAULT_TARGET_MESSAGE_SIZE: usize = 25 * 1_000_000; // 25MB
 pub const DEFAULT_MAX_CONCURRENT_CHUNK_QUERIES: usize = 4;
@@ -147,7 +152,7 @@ where
 pub struct Params {
     /// Maximum allowed message size (in bytes) by the gRPC protocol.
     ///
-    /// If you need to update this value be aware that this value is tipically
+    /// If you need to update this value be aware that it is usually
     /// smaller than [`Params::parquet_in_memory_encoding_buffer_size`].
     ///
     /// Defaults to 50 MB.
@@ -158,8 +163,9 @@ pub struct Params {
     /// message. If the resulting batch size exceeds the limit, it will be capped by
     /// [`Params::max_batch_size`].
     ///
-    /// Defaults to 25MB.
-    pub target_message_size: Param<usize>,
+    /// This param does not have a corresponding ENV var associated,
+    /// but it is directly set to half of [`Params::max_grpx_message_size`] instead.
+    pub target_message_size: usize,
 
     /// Maximum number of concurrent chunk queries during data catalog filtering.
     pub max_concurrent_chunk_queries: Param<usize>,
@@ -233,6 +239,33 @@ pub struct Params {
     pub store_access_key: Param<String>,
 }
 
+impl Params {
+    fn validate(&self) -> Result<(), error::Error> {
+        if self.max_batch_size.value == 0 {
+            Err(error::Error::invalid_configuration(
+                self.max_batch_size.env.clone(),
+                "must be greater than 0".to_owned(),
+            ))?;
+        }
+
+        if self.max_grpc_message_size.value < GRPC_MSG_MIN_SIZE_BYTES
+            || self.max_grpc_message_size.value > GRPC_MSG_MAX_SIZE_BYTES
+        {
+            let err_msg = format!(
+                "must be in the range: [{}, {}]",
+                GRPC_MSG_MIN_SIZE_BYTES, GRPC_MSG_MAX_SIZE_BYTES
+            );
+
+            Err(error::Error::invalid_configuration(
+                self.max_grpc_message_size.env.clone(),
+                err_msg,
+            ))?;
+        }
+
+        Ok(())
+    }
+}
+
 /// Options for loading parameters from environment variables
 pub struct ParamsLoadOptions {
     /// Avoid parsing `MOSICOD_DB_URL` env variable
@@ -260,16 +293,16 @@ pub fn load_params_from_env(config: ParamsLoadOptions) -> error::PublicResult<()
         .expect("Unable to detect default parallelism, please define MOSAICOD_DEFAULT_PARALLELISM")
         .get();
 
+    let max_grpc_message_size = Param::optional(
+        "MOSAICOD_MAX_GRPC_MESSAGE_SIZE",
+        DEFAULT_MAX_GRPC_MESSAGE_SIZE,
+    );
+    let target_message_size = max_grpc_message_size.value / 2;
+
     let ev = Params {
         // general
-        max_grpc_message_size: Param::optional(
-            "MOSAICOD_MAX_GRPC_MESSAGE_SIZE",
-            DEFAULT_MAX_GRPC_MESSAGE_SIZE,
-        ),
-        target_message_size: Param::optional(
-            "MOSAICOD_TARGET_MESSAGE_SIZE",
-            DEFAULT_TARGET_MESSAGE_SIZE,
-        ),
+        max_grpc_message_size,
+        target_message_size,
         max_concurrent_chunk_queries: Param::optional(
             "MOSAICOD_MAX_CONCURRENT_CHUNK_QUERIES",
             DEFAULT_MAX_CONCURRENT_CHUNK_QUERIES,
@@ -330,12 +363,7 @@ pub fn load_params_from_env(config: ParamsLoadOptions) -> error::PublicResult<()
         ),
     };
 
-    if ev.max_batch_size.value == 0 {
-        Err(error::Error::invalid_configuration(
-            ev.max_batch_size.env.clone(),
-            "must be greater than 0".to_owned(),
-        ))?;
-    }
+    ev.validate()?;
 
     let _ = ENV.set(ev);
 
@@ -355,4 +383,101 @@ pub fn version() -> String {
         version.push_str("-devel");
     }
     version
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::ErrorKind;
+
+    fn param<T>(value: T) -> Param<T> {
+        Param {
+            env: "TEST_ENV_VAR".to_owned(),
+            value,
+            _visibility: PhantomData,
+        }
+    }
+
+    fn param_hidden<T>(value: T) -> Param<T, Hidden> {
+        Param {
+            env: "TEST_ENV_VAR".to_owned(),
+            value,
+            _visibility: PhantomData,
+        }
+    }
+
+    /// Builds a `Params` instance that passes `validate()`, so individual
+    /// fields can be overridden to exercise a single validation rule at a time.
+    fn valid_params() -> Params {
+        Params {
+            max_grpc_message_size: param(GRPC_MSG_MIN_SIZE_BYTES),
+            target_message_size: GRPC_MSG_MIN_SIZE_BYTES / 2,
+            max_concurrent_chunk_queries: param(4),
+            max_size_plain_list_eq: param(1024),
+            max_concurrent_writes: param(1),
+            max_batch_size: param(8192),
+            default_parallelism: param(1),
+            query_engine_memory_pool_size: param(0),
+            parquet_in_memory_encoding_buffer_size: param(75 * 1_000_000),
+            tls_certificate_file: param("".to_owned()),
+            tls_private_key_file: param("".to_owned()),
+            db_url: param("".to_owned()),
+            max_db_connections: param(10),
+            store_endpoint: param("".to_owned()),
+            store_bucket: param("".to_owned()),
+            store_secret_key: param_hidden("".to_owned()),
+            store_access_key: param("".to_owned()),
+        }
+    }
+
+    #[test]
+    fn validate_accepts_valid_params() {
+        assert!(valid_params().validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_zero_max_batch_size() {
+        let mut params = valid_params();
+        params.max_batch_size = param(0);
+
+        let err = params.validate().unwrap_err();
+        assert!(matches!(err.kind(), ErrorKind::InvalidConfiguration(_)));
+    }
+
+    #[test]
+    fn validate_accepts_max_batch_size_of_one() {
+        let mut params = valid_params();
+        params.max_batch_size = param(1);
+
+        assert!(params.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_max_grpc_message_size_below_min() {
+        let mut params = valid_params();
+        params.max_grpc_message_size = param(GRPC_MSG_MIN_SIZE_BYTES - 1);
+
+        let err = params.validate().unwrap_err();
+        assert!(matches!(err.kind(), ErrorKind::InvalidConfiguration(_)));
+    }
+
+    #[test]
+    fn validate_rejects_max_grpc_message_size_above_max() {
+        let mut params = valid_params();
+        params.max_grpc_message_size = param(GRPC_MSG_MAX_SIZE_BYTES + 1);
+
+        let err = params.validate().unwrap_err();
+        assert!(matches!(err.kind(), ErrorKind::InvalidConfiguration(_)));
+    }
+
+    #[test]
+    fn validate_accepts_max_grpc_message_size_at_bounds() {
+        let mut params = valid_params();
+
+        params.max_grpc_message_size = param(GRPC_MSG_MIN_SIZE_BYTES);
+        assert!(params.validate().is_ok());
+
+        params.max_grpc_message_size = param(GRPC_MSG_MAX_SIZE_BYTES);
+        assert!(params.validate().is_ok());
+    }
 }
