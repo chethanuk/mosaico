@@ -94,6 +94,7 @@ impl Server {
         F: FnOnce(),
     {
         let shutdown = self.shutdown.clone();
+
         let opts = self.options.clone();
 
         rt.block_on(async {
